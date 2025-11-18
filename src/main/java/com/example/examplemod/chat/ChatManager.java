@@ -424,6 +424,11 @@ public class ChatManager {
                 }
             }
         }
+
+        // JSON logging
+        try {
+            ChatJsonLogger.log(server, channel, chatMessage);
+        } catch (Throwable ignored) {}
     }
 
     public static List<ChatMessage> getChatHistory(String channelId) {

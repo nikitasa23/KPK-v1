@@ -272,14 +272,6 @@ public class ItemKPK extends Item {
 
         } else {
             if (isEnabled(stack)) {
-                if (getUserData(stack) == null) {
-                    if (!worldIn.isRemote) {
-                        TextComponentString notSetupMessage = new TextComponentString(TextFormatting.RED + "КПК не настроен. Используйте команду /kpk set, держа его в руке.");
-                        playerIn.sendMessage(notSetupMessage);
-                    }
-                    return new ActionResult<>(EnumActionResult.FAIL, stack);
-                }
-
                 if (worldIn.isRemote) {
                     if (net.minecraft.client.Minecraft.getMinecraft().currentScreen instanceof KPKModelInteractionGui) {
                         playerIn.closeScreen();

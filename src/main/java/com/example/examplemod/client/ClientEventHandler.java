@@ -22,6 +22,8 @@ import java.util.UUID;
 public class ClientEventHandler {
 
     private static UUID lastCheckedKpkOwnerUUID = null;
+    private static long lastIdentityCheckMs = 0L;
+    private static final long IDENTITY_CHECK_INTERVAL_MS = 250L; // throttle to 4x per second
 
     @SideOnly(Side.CLIENT)
     @SubscribeEvent
@@ -31,8 +33,12 @@ public class ClientEventHandler {
         EntityPlayer player = event.player;
         if (player == null || player.world == null) return;
 
-        // Эта проверка выполняется постоянно, а не только когда открыт GUI
-        checkActiveKpkIdentity(player);
+        // Эта проверка выполняется постоянно, но с троттлингом
+        long nowMs = System.currentTimeMillis();
+        if (nowMs - lastIdentityCheckMs >= IDENTITY_CHECK_INTERVAL_MS) {
+            lastIdentityCheckMs = nowMs;
+            checkActiveKpkIdentity(player);
+        }
 
         Minecraft mc = Minecraft.getMinecraft();
         if (mc == null) return;

@@ -36,6 +36,7 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.util.glu.GLU;
+import org.lwjgl.input.Mouse;
 
 import java.awt.*;
 import java.nio.FloatBuffer;
@@ -69,6 +70,10 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
     private static int lastScreenHeight = 0;
 
     private static VertexBuffer tabletVBO;
+    private static boolean atlasParamsInitialized = false;
+     private static long lastRectUpdateMs = 0L;
+    private static final long RECT_UPDATE_INTERVAL_MS = 50L;
+    private static final FloatBuffer SCREEN_COORDS = BufferUtils.createFloatBuffer(3);
 
     static {
         ClientChatCache.addOnChatDataUpdatedListener(ItemKPKRenderer::invalidateFontCache);
@@ -96,6 +101,13 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
     public static Rectangle modelContactsConfirmAddRectOnScreen = null;
     public static Rectangle modelChatCreatePmButtonRectOnScreen = null;
     public static Rectangle modelChatCreateGroupButtonRectOnScreen = null;
+    // Registration UI rects
+    public static Rectangle modelRegSurnameRectOnScreen = null;
+    public static Rectangle modelRegNameRectOnScreen = null;
+    public static Rectangle modelRegCallsignRectOnScreen = null;
+    public static Rectangle modelRegGenderRectOnScreen = null;
+    public static Rectangle modelRegBirthdateRectOnScreen = null;
+    public static Rectangle modelRegSubmitRectOnScreen = null;
     public static List<Rectangle> modelChannelListButtonRectsOnScreen = new ArrayList<>();
     public static List<String> modelChannelListButtonAssociatedId = new ArrayList<>();
     public static Rectangle modelChannelListAreaRectOnScreen = null;
@@ -249,10 +261,18 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
         mc.getTextureManager().bindTexture(player.getLocationSkin());
         GlStateManager.enableLighting();
         GlStateManager.disableCull();
-        if (side == EnumHandSide.RIGHT) {
-            mc.getRenderManager().getSkinMap().get("default").renderRightArm(player);
-        } else {
-            mc.getRenderManager().getSkinMap().get("default").renderLeftArm(player);
+        String skinType = player.getSkinType();
+        if (skinType == null || skinType.isEmpty()) skinType = "default";
+        net.minecraft.client.renderer.entity.RenderPlayer renderPlayer = mc.getRenderManager().getSkinMap().get(skinType);
+        if (renderPlayer == null) {
+            renderPlayer = mc.getRenderManager().getSkinMap().get("default");
+        }
+        if (renderPlayer != null) {
+            if (side == EnumHandSide.RIGHT) {
+                renderPlayer.renderRightArm(player);
+            } else {
+                renderPlayer.renderLeftArm(player);
+            }
         }
         GlStateManager.enableCull();
         GlStateManager.popMatrix();
@@ -277,7 +297,10 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
         if (tabletModel == null) return;
 
         mc.getTextureManager().bindTexture(TextureMap.LOCATION_BLOCKS_TEXTURE);
-        mc.getTextureManager().getTexture(TextureMap.LOCATION_BLOCKS_TEXTURE).setBlurMipmap(false, false);
+        if (!atlasParamsInitialized) {
+            mc.getTextureManager().getTexture(TextureMap.LOCATION_BLOCKS_TEXTURE).setBlurMipmap(false, false);
+            atlasParamsInitialized = true;
+        }
         GlStateManager.enableRescaleNormal();
         GlStateManager.alphaFunc(GL11.GL_GREATER, 0.1F);
         GlStateManager.enableBlend();
@@ -316,7 +339,7 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
         RenderHelper.disableStandardItemLighting();
         GlStateManager.disableRescaleNormal();
         GlStateManager.disableBlend();
-        mc.getTextureManager().getTexture(TextureMap.LOCATION_BLOCKS_TEXTURE).restoreLastBlurMipmap();
+        // Do not restore every frame; we keep atlas params stable for performance.
     }
 
     private void renderQuads(BufferBuilder renderer, List<BakedQuad> quads, int color) {
@@ -343,7 +366,19 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
         GlStateManager.translate(-desiredInterfaceWidthVirtual / 2f, -desiredInterfaceHeightVirtual / 2f, 0.01F);
 
         ScaledResolution sr = null;
+        boolean shouldUpdateRects = false;
         if (interactionGuiOpen) {
+            long now = System.currentTimeMillis();
+            if (now - lastRectUpdateMs >= RECT_UPDATE_INTERVAL_MS) {
+                lastRectUpdateMs = now;
+                shouldUpdateRects = true;
+            }
+            // Ensure rects are up-to-date when the player is actually clicking
+            if (!shouldUpdateRects && (Mouse.isButtonDown(0) || Mouse.isButtonDown(1))) {
+                shouldUpdateRects = true;
+            }
+        }
+        if (interactionGuiOpen && shouldUpdateRects) {
             modelView.clear();
             projection.clear();
             viewport.clear();
@@ -377,7 +412,7 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
                 isInfoActive ? COLOR_ACTIVE_BOTTOM : COLOR_INACTIVE_BOTTOM,
                 COLOR_BORDER);
         drawCenteredStringWithShadow(fontRenderer, TextFormatting.BOLD + "ИНФА", currentTopButtonX + topButtonWidth/2, topButtonY + (topButtonHeight - fontRenderer.FONT_HEIGHT)/2 + 1, isInfoActive ? 0xFFFFFFFF : 0xFFAAAAAA);
-        if(interactionGuiOpen) ItemKPKRenderer.modelInfoButtonRectOnScreen = calculateScreenRectForVirtual(currentTopButtonX, topButtonY, topButtonWidth, topButtonHeight, modelView, projection, viewport, sr);
+        if (interactionGuiOpen && shouldUpdateRects) ItemKPKRenderer.modelInfoButtonRectOnScreen = calculateScreenRectForVirtual(currentTopButtonX, topButtonY, topButtonWidth, topButtonHeight, modelView, projection, viewport, sr);
 
         currentTopButtonX += topButtonWidth + topButtonSpacing;
 
@@ -387,7 +422,7 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
                 isChatActive ? COLOR_ACTIVE_BOTTOM : COLOR_INACTIVE_BOTTOM,
                 COLOR_BORDER);
         drawCenteredStringWithShadow(fontRenderer, TextFormatting.BOLD + "ЧАТ", currentTopButtonX + topButtonWidth/2, topButtonY + (topButtonHeight - fontRenderer.FONT_HEIGHT) / 2 + 1, isChatActive ? 0xFFFFFFFF : 0xFFAAAAAA);
-        if(interactionGuiOpen) ItemKPKRenderer.modelChatButtonRectOnScreen = calculateScreenRectForVirtual(currentTopButtonX, topButtonY, topButtonWidth, topButtonHeight, modelView, projection, viewport, sr);
+        if (interactionGuiOpen && shouldUpdateRects) ItemKPKRenderer.modelChatButtonRectOnScreen = calculateScreenRectForVirtual(currentTopButtonX, topButtonY, topButtonWidth, topButtonHeight, modelView, projection, viewport, sr);
 
         currentTopButtonX += topButtonWidth + topButtonSpacing;
 
@@ -397,7 +432,7 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
                 isContactsActive ? COLOR_ACTIVE_BOTTOM : COLOR_INACTIVE_BOTTOM,
                 COLOR_BORDER);
         drawCenteredStringWithShadow(fontRenderer, TextFormatting.BOLD + "КОНТАКТЫ", currentTopButtonX + topButtonWidth/2, topButtonY + (topButtonHeight - fontRenderer.FONT_HEIGHT)/2 + 1, isContactsActive ? 0xFFFFFFFF : 0xFFAAAAAA);
-        if(interactionGuiOpen) ItemKPKRenderer.modelContactsButtonRectOnScreen = calculateScreenRectForVirtual(currentTopButtonX, topButtonY, topButtonWidth, topButtonHeight, modelView, projection, viewport, sr);
+        if (interactionGuiOpen && shouldUpdateRects) ItemKPKRenderer.modelContactsButtonRectOnScreen = calculateScreenRectForVirtual(currentTopButtonX, topButtonY, topButtonWidth, topButtonHeight, modelView, projection, viewport, sr);
 
         if (!interactionGuiOpen) {
             modelChatCreateButtonRectOnScreen = null;
@@ -435,8 +470,7 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
                 }
             }
         } else {
-            drawCenteredStringWithShadow(fontRenderer, "КПК НЕ ИНИЦИАЛИЗИРОВАН", 0, -5, 0xFF5555);
-            drawCenteredStringWithShadow(fontRenderer, "Используйте /kpk set", 0, 5, 0xFFFF55);
+            renderRegistrationForm(interactionGuiOpen, modelView, projection, viewport, sr);
         }
 
         if (currentPage != ItemKPK.PAGE_CHAT) {
@@ -447,6 +481,51 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
         GlStateManager.enableLighting();
         GlStateManager.disableBlend();
         GlStateManager.popMatrix();
+    }
+
+    private void renderRegistrationForm(boolean interactionGuiOpen, FloatBuffer mv, FloatBuffer proj, IntBuffer vp, ScaledResolution sr) {
+        FontRenderer fr = mc.fontRenderer;
+        int formX = -140;
+        int formY = -50;
+        int labelGap = 14;
+        int inputWidth = 220;
+        int inputHeight = 14;
+
+        drawCenteredStringWithShadow(fr, TextFormatting.GOLD + "Регистрация КПК", 80, formY - 18, 0xFFFFFF);
+
+        String[] labels = {"Фамилия", "Имя", "Позывной", "Пол (MALE/FEMALE)", "Дата (dd.MM.yyyy)"};
+
+        String[] values = {"", "", "", "", ""};
+        if (mc.currentScreen instanceof com.example.examplemod.gui.KPKModelInteractionGui) {
+            com.example.examplemod.gui.KPKModelInteractionGui gui = (com.example.examplemod.gui.KPKModelInteractionGui) mc.currentScreen;
+            values[0] = gui.getRegFam();
+            values[1] = gui.getRegName();
+            values[2] = gui.getRegPoz();
+            values[3] = gui.getRegGender();
+            values[4] = gui.getRegBirthdate();
+        }
+
+        for (int i = 0; i < labels.length; i++) {
+            int y = formY + i * (labelGap + inputHeight);
+            fr.drawStringWithShadow(labels[i], formX, y, 0xDDDDDD);
+            Gui.drawRect(formX + 90, y - 1, formX + 90 + inputWidth, y + inputHeight, 0x66000000);
+            String text = values[i] == null ? "" : values[i];
+            fr.drawStringWithShadow(text, formX + 94, y + 3, 0xFFFFFFFF);
+        }
+
+        int submitY = formY + labels.length * (labelGap + inputHeight) + 8;
+        drawStyledButton(formX + 90, submitY, 100, 18, COLOR_POSITIVE_TOP, COLOR_POSITIVE_BOTTOM, COLOR_BORDER);
+        drawCenteredStringWithShadow(fr, "Зарегистрировать", formX + 90 + 50, submitY + 5, 0xFFFFFFFF);
+
+        if (!interactionGuiOpen) return;
+
+        // Create hitboxes
+        modelRegSurnameRectOnScreen = calculateScreenRectForVirtual(formX + 90, formY + 0 * (labelGap + inputHeight), inputWidth, inputHeight, mv, proj, vp, sr);
+        modelRegNameRectOnScreen = calculateScreenRectForVirtual(formX + 90, formY + 1 * (labelGap + inputHeight), inputWidth, inputHeight, mv, proj, vp, sr);
+        modelRegCallsignRectOnScreen = calculateScreenRectForVirtual(formX + 90, formY + 2 * (labelGap + inputHeight), inputWidth, inputHeight, mv, proj, vp, sr);
+        modelRegGenderRectOnScreen = calculateScreenRectForVirtual(formX + 90, formY + 3 * (labelGap + inputHeight), inputWidth, inputHeight, mv, proj, vp, sr);
+        modelRegBirthdateRectOnScreen = calculateScreenRectForVirtual(formX + 90, formY + 4 * (labelGap + inputHeight), inputWidth, inputHeight, mv, proj, vp, sr);
+        modelRegSubmitRectOnScreen = calculateScreenRectForVirtual(formX + 90, submitY, 100, 18, mv, proj, vp, sr);
     }
 
     private void renderInfoPage(User userData) {
@@ -531,6 +610,9 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
         }
 
         String currentChannelId = ItemKPK.getCurrentChatChannelId(stack);
+        if (currentChannelId == null || currentChannelId.trim().isEmpty()) {
+            currentChannelId = com.example.examplemod.chat.ChatChannel.COMMON_CHANNEL_ID_PREFIX;
+        }
 
         for (int i = 0; i < maxVisible; i++) {
             int channelIndex = i + channelScrollOffset;
@@ -721,7 +803,7 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
             int inputFieldX = chatHistoryX;
             int sendButtonX = inputFieldX + inputFieldWidth + 2;
 
-            if (currentChannelId.equals(ChatChannel.COMMON_CHANNEL_ID_PREFIX)) {
+            if (ChatChannel.COMMON_CHANNEL_ID_PREFIX.equals(currentChannelId)) {
                 boolean isAnonymousMode = kpkGui.isAnonymous();
                 int anonButtonWidth = 80;
                 int anonButtonX = inputFieldX;
@@ -1035,11 +1117,11 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
     private static float[] projectToScreenSpaceForRect(float x, float y, float z,
                                                        FloatBuffer modelViewMatrix, FloatBuffer projectionMatrix, IntBuffer viewport,
                                                        ScaledResolution sr) {
-        FloatBuffer screenCoords = BufferUtils.createFloatBuffer(3);
-        if (GLU.gluProject(x, y, z, modelViewMatrix, projectionMatrix, viewport, screenCoords)) {
-            float screenX = screenCoords.get(0);
-            float screenY = mc.displayHeight - screenCoords.get(1);
-            return new float[]{screenX / sr.getScaleFactor(), screenY / sr.getScaleFactor(), screenCoords.get(2)};
+        SCREEN_COORDS.clear();
+        if (GLU.gluProject(x, y, z, modelViewMatrix, projectionMatrix, viewport, SCREEN_COORDS)) {
+            float screenX = SCREEN_COORDS.get(0);
+            float screenY = mc.displayHeight - SCREEN_COORDS.get(1);
+            return new float[]{screenX / sr.getScaleFactor(), screenY / sr.getScaleFactor(), SCREEN_COORDS.get(2)};
         }
         return null;
     }

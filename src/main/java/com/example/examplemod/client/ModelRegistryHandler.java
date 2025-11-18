@@ -21,14 +21,14 @@ public class ModelRegistryHandler {
     @SubscribeEvent
     @SideOnly(Side.CLIENT)
     public static void registerModels(ModelRegistryEvent event) {
-        System.out.println("=== MODEL REGISTRATION DEBUG ===");
+        ExampleMod.logger.debug("=== MODEL REGISTRATION DEBUG ===");
 
         OBJLoader.INSTANCE.addDomain(ExampleMod.MODID);
-        System.out.println("→ OBJ Loader enabled for domain: " + ExampleMod.MODID);
+        ExampleMod.logger.debug("→ OBJ Loader enabled for domain: {}", ExampleMod.MODID);
 
         if (ModItems.KPK_DEVICE != null) {
             ModItems.KPK_DEVICE.setTileEntityItemStackRenderer(new ItemKPKRenderer());
-            System.out.println("→ Set TileEntityItemStackRenderer for KPK_DEVICE");
+            ExampleMod.logger.debug("→ Set TileEntityItemStackRenderer for KPK_DEVICE");
         }
 
         if (ModItems.KPK_DEVICE != null && ModItems.KPK_DEVICE.getRegistryName() != null) {
@@ -38,23 +38,23 @@ public class ModelRegistryHandler {
             ModelBakery.registerItemVariants(ModItems.KPK_DEVICE,
                     new ResourceLocation(ExampleMod.MODID, "kpk_device"));
 
-            System.out.println("→ Registered KPK device model: " + inventoryVariant);
+            ExampleMod.logger.debug("→ Registered KPK device model: {}", inventoryVariant);
         }
 
         for (Item item : ModItems.ITEMS) {
             if (item == ModItems.KPK_DEVICE) continue;
 
             if (item.getRegistryName() == null) {
-                System.err.println("Item " + item + " has null registryName! Skipping model registration.");
+                ExampleMod.logger.warn("Item {} has null registryName! Skipping model registration.", item);
                 continue;
             }
 
             ModelResourceLocation mrl = new ModelResourceLocation(item.getRegistryName(), "inventory");
             ModelLoader.setCustomModelResourceLocation(item, 0, mrl);
 
-            System.out.println("→ Registered model for: " + item.getRegistryName());
+            ExampleMod.logger.debug("→ Registered model for: {}", item.getRegistryName());
         }
 
-        System.out.println("Model registration complete!");
+        ExampleMod.logger.debug("Model registration complete!");
     }
 }

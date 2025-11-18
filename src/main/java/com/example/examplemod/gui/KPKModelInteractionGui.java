@@ -30,6 +30,14 @@ public class KPKModelInteractionGui extends GuiScreen {
     public int chatScrollOffset = 0;
     public int channelScrollOffset = 0;
 
+    // Registration form state
+    private String regFam = "";
+    private String regName = "";
+    private String regPoz = "";
+    private String regGender = "";
+    private String regBirthdate = "";
+    private int regActiveField = -1; // -1 none, 0..4 fields
+
     public KPKModelInteractionGui() {
         super();
         if (Minecraft.getMinecraft().player != null) {
@@ -71,6 +79,12 @@ public class KPKModelInteractionGui extends GuiScreen {
     public boolean isAnonymous() {
         return this.isAnonymous;
     }
+
+    public String getRegFam() { return regFam; }
+    public String getRegName() { return regName; }
+    public String getRegPoz() { return regPoz; }
+    public String getRegGender() { return regGender; }
+    public String getRegBirthdate() { return regBirthdate; }
 
     public int getCursorCounter() {
         return cursorCounter;
@@ -192,6 +206,19 @@ public class KPKModelInteractionGui extends GuiScreen {
 
         contactInputActive = false;
         chatInputActive = false;
+
+        // Registration flow: if user data is missing, handle submit button
+        if (ItemKPK.getUserData(kpkStack) == null) {
+            if (ItemKPKRenderer.modelRegSurnameRectOnScreen != null && ItemKPKRenderer.modelRegSurnameRectOnScreen.contains(mouseX, mouseY)) { regActiveField = 0; return; }
+            if (ItemKPKRenderer.modelRegNameRectOnScreen != null && ItemKPKRenderer.modelRegNameRectOnScreen.contains(mouseX, mouseY)) { regActiveField = 1; return; }
+            if (ItemKPKRenderer.modelRegCallsignRectOnScreen != null && ItemKPKRenderer.modelRegCallsignRectOnScreen.contains(mouseX, mouseY)) { regActiveField = 2; return; }
+            if (ItemKPKRenderer.modelRegGenderRectOnScreen != null && ItemKPKRenderer.modelRegGenderRectOnScreen.contains(mouseX, mouseY)) { regActiveField = 3; return; }
+            if (ItemKPKRenderer.modelRegBirthdateRectOnScreen != null && ItemKPKRenderer.modelRegBirthdateRectOnScreen.contains(mouseX, mouseY)) { regActiveField = 4; return; }
+            if (ItemKPKRenderer.modelRegSubmitRectOnScreen != null && ItemKPKRenderer.modelRegSubmitRectOnScreen.contains(mouseX, mouseY)) {
+                PacketHandler.INSTANCE.sendToServer(new PacketRegisterKpkUser(regFam, regName, regPoz, regGender, regBirthdate));
+                return;
+            }
+        }
 
         if (checkRect(ItemKPKRenderer.modelInfoButtonRectOnScreen, mouseX, mouseY)) {
             ItemKPK.setCurrentModelPage(kpkStack, ItemKPK.PAGE_INFO);
@@ -362,6 +389,19 @@ public class KPKModelInteractionGui extends GuiScreen {
             return;
         }
 
+        if (ItemKPK.getUserData(kpkStack) == null && regActiveField >= 0) {
+            if (keyCode == org.lwjgl.input.Keyboard.KEY_ESCAPE) { regActiveField = -1; return; }
+            if (keyCode == org.lwjgl.input.Keyboard.KEY_RETURN) { regActiveField = -1; return; }
+            if (org.lwjgl.input.Keyboard.isKeyDown(org.lwjgl.input.Keyboard.KEY_BACK)) {
+                backspaceActiveField();
+                return;
+            }
+            if (net.minecraft.util.ChatAllowedCharacters.isAllowedCharacter(typedChar)) {
+                appendToActiveField(typedChar);
+            }
+            return;
+        }
+
         if (chatInputActive) {
             if (keyCode == Keyboard.KEY_ESCAPE) {
                 chatInputActive = false;
@@ -411,6 +451,27 @@ public class KPKModelInteractionGui extends GuiScreen {
 
         super.keyTyped(typedChar, keyCode);
     }
+
+    private void backspaceActiveField() {
+        switch (regActiveField) {
+            case 0: if (!regFam.isEmpty()) regFam = regFam.substring(0, regFam.length()-1); break;
+            case 1: if (!regName.isEmpty()) regName = regName.substring(0, regName.length()-1); break;
+            case 2: if (!regPoz.isEmpty()) regPoz = regPoz.substring(0, regPoz.length()-1); break;
+            case 3: if (!regGender.isEmpty()) regGender = regGender.substring(0, regGender.length()-1); break;
+            case 4: if (!regBirthdate.isEmpty()) regBirthdate = regBirthdate.substring(0, regBirthdate.length()-1); break;
+        }
+    }
+
+    private void appendToActiveField(char c) {
+        switch (regActiveField) {
+            case 0: if (regFam.length() < 32) regFam += c; break;
+            case 1: if (regName.length() < 32) regName += c; break;
+            case 2: if (regPoz.length() < 20) regPoz += c; break;
+            case 3: if (regGender.length() < 12) regGender += Character.toUpperCase(c); break;
+            case 4: if (regBirthdate.length() < 10) regBirthdate += c; break;
+        }
+    }
+
 
     private boolean isValidChar(char typedChar, int keyCode) {
         return net.minecraft.util.ChatAllowedCharacters.isAllowedCharacter(typedChar) || keyCode == Keyboard.KEY_BACK;

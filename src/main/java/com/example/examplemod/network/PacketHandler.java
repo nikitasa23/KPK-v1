@@ -37,5 +37,8 @@ public class PacketHandler {
         INSTANCE.registerMessage(PacketRequestChannelSync.Handler.class, PacketRequestChannelSync.class, id++, Side.SERVER);
 
         INSTANCE.registerMessage(PacketNotifyNewMessage.Handler.class, PacketNotifyNewMessage.class, id++, Side.CLIENT);
+
+        // Registration
+        INSTANCE.registerMessage(PacketRegisterKpkUser.Handler.class, PacketRegisterKpkUser.class, id++, Side.SERVER);
     }
 }
