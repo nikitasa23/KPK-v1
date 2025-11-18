@@ -299,9 +299,9 @@ public class KPKModelInteractionGui extends GuiScreen {
 
             for (int i = 0; i < ItemKPKRenderer.modelMemberRemoveButtonRectsOnScreen.size(); i++) {
                 if (checkRect(ItemKPKRenderer.modelMemberRemoveButtonRectsOnScreen.get(i), mouseX, mouseY)) {
-                    UUID memberId = ItemKPKRenderer.modelMemberRemoveButtonAssociatedId.get(i);
+                    String memberCallsign = ItemKPKRenderer.modelMemberRemoveButtonAssociatedId.get(i);
                     String channelId = ItemKPK.getCurrentChatChannelId(kpkStack);
-                    PacketHandler.INSTANCE.sendToServer(new PacketRequestRemoveMember(channelId, memberId));
+                    PacketHandler.INSTANCE.sendToServer(new PacketRequestRemoveMember(channelId, memberCallsign));
                     return;
                 }
             }

@@ -116,7 +116,7 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
     public static List<Rectangle> modelChannelDeleteButtonRectsOnScreen = new ArrayList<>();
     public static List<String> modelChannelDeleteButtonAssociatedId = new ArrayList<>();
     public static List<Rectangle> modelMemberRemoveButtonRectsOnScreen = new ArrayList<>();
-    public static List<UUID> modelMemberRemoveButtonAssociatedId = new ArrayList<>();
+    public static List<String> modelMemberRemoveButtonAssociatedId = new ArrayList<>();
 
     private static final int COLOR_BORDER = 0xFF1E1E1E;
     private static final int COLOR_INACTIVE_TOP = 0xFF4F4F4F;
@@ -862,17 +862,17 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
             modelMemberRemoveButtonAssociatedId.clear();
         }
 
-        List<UUID> members = channel.getMembers();
-        UUID creatorUuid = channel.getCreatorUuid();
-        boolean isLocalPlayerCreator = creatorUuid != null && mc.player != null && creatorUuid.equals(mc.player.getUniqueID());
+        List<String> memberCallsigns = channel.getMemberCallsigns();
+        String creatorCallsign = channel.getCreatorCallsign();
+        String localPlayerCallsign = mc.player != null ? ClientChatCache.getCallsignForUUID(mc.player.getUniqueID()) : null;
+        boolean isLocalPlayerCreator = creatorCallsign != null && localPlayerCallsign != null && creatorCallsign.equalsIgnoreCase(localPlayerCallsign);
 
-        for (int i = 0; i < members.size(); i++) {
-            UUID memberUuid = members.get(i);
-            String callsign = ClientChatCache.getCallsignForUUID(memberUuid);
+        for (int i = 0; i < memberCallsigns.size(); i++) {
+            String memberCallsign = memberCallsigns.get(i);
 
-            boolean isCreator = Objects.equals(memberUuid, creatorUuid);
+            boolean isCreator = creatorCallsign != null && creatorCallsign.equalsIgnoreCase(memberCallsign);
             String prefix = isCreator ? TextFormatting.GOLD + "[★] " : "";
-            String fullText = prefix + TextFormatting.WHITE + callsign;
+            String fullText = prefix + TextFormatting.WHITE + memberCallsign;
 
             int itemY = listY + 12 + i * itemHeight;
 
@@ -882,7 +882,7 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
             mc.fontRenderer.drawString(fullText, 0, 0, 0xFFFFFF);
             GlStateManager.popMatrix();
 
-            if (interactionGuiOpen && isLocalPlayerCreator && !memberUuid.equals(mc.player.getUniqueID()) && channel.getType() == ChatChannelType.PRIVATE_GROUP) {
+            if (interactionGuiOpen && isLocalPlayerCreator && localPlayerCallsign != null && !memberCallsign.equalsIgnoreCase(localPlayerCallsign) && channel.getType() == ChatChannelType.PRIVATE_GROUP) {
                 int delButtonSize = 10;
                 int delButtonX = listX + listWidth - delButtonSize - 2;
                 int delButtonY = itemY;
@@ -890,7 +890,7 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
                 drawCenteredStringWithShadow(mc.fontRenderer, "X", delButtonX + delButtonSize / 2, delButtonY + 1, 0xFFFFFFFF);
 
                 modelMemberRemoveButtonRectsOnScreen.add(calculateScreenRectForVirtual(delButtonX, delButtonY, delButtonSize, delButtonSize, mv, proj, vp, sr));
-                modelMemberRemoveButtonAssociatedId.add(memberUuid);
+                modelMemberRemoveButtonAssociatedId.add(memberCallsign);
             }
         }
     }

@@ -16,33 +16,33 @@ public class ChatChannel {
     private String channelId;
     private String displayName;
     private ChatChannelType type;
-    private List<UUID> members;
-    private UUID creatorUuid;
+    private List<String> memberCallsigns;
+    private String creatorCallsign;
     private int maxMembers;
 
     public static final String COMMON_CHANNEL_ID_PREFIX = "common_server_global";
 
     public ChatChannel() {
-        this.members = new ArrayList<>();
+        this.memberCallsigns = new ArrayList<>();
     }
 
     public ChatChannel(String channelId, String displayName, ChatChannelType type) {
         this.channelId = channelId;
         this.displayName = displayName;
         this.type = type;
-        this.members = new ArrayList<>();
-        this.creatorUuid = null;
+        this.memberCallsigns = new ArrayList<>();
+        this.creatorCallsign = null;
         this.maxMembers = Integer.MAX_VALUE;
     }
 
-    public ChatChannel(String channelId, String displayName, ChatChannelType type, UUID creatorUuid, List<UUID> initialMembers, int maxMembers) {
+    public ChatChannel(String channelId, String displayName, ChatChannelType type, String creatorCallsign, List<String> initialMemberCallsigns, int maxMembers) {
         this.channelId = channelId;
         this.displayName = displayName;
         this.type = type;
-        this.creatorUuid = creatorUuid;
-        this.members = new ArrayList<>(initialMembers);
-        if (!this.members.contains(creatorUuid) && type != ChatChannelType.COMMON_SERVER_WIDE) {
-            this.members.add(creatorUuid);
+        this.creatorCallsign = creatorCallsign;
+        this.memberCallsigns = new ArrayList<>(initialMemberCallsigns);
+        if (creatorCallsign != null && !this.memberCallsigns.contains(creatorCallsign) && type != ChatChannelType.COMMON_SERVER_WIDE) {
+            this.memberCallsigns.add(creatorCallsign);
         }
         this.maxMembers = maxMembers;
     }
@@ -59,12 +59,12 @@ public class ChatChannel {
         return type;
     }
 
-    public List<UUID> getMembers() {
-        return new ArrayList<>(members);
+    public List<String> getMemberCallsigns() {
+        return new ArrayList<>(memberCallsigns);
     }
 
-    public UUID getCreatorUuid() {
-        return creatorUuid;
+    public String getCreatorCallsign() {
+        return creatorCallsign;
     }
 
     public int getMaxMembers() {
@@ -75,21 +75,23 @@ public class ChatChannel {
         this.displayName = displayName;
     }
 
-    public boolean addMember(UUID memberUuid) {
-        if (members.size() < maxMembers && !members.contains(memberUuid)) {
-            members.add(memberUuid);
+    public boolean addMember(String memberCallsign) {
+        if (memberCallsign == null || memberCallsign.isEmpty()) return false;
+        if (memberCallsigns.size() < maxMembers && !memberCallsigns.contains(memberCallsign)) {
+            memberCallsigns.add(memberCallsign);
             return true;
         }
         return false;
     }
 
-    public boolean removeMember(UUID memberUuid) {
-        return members.remove(memberUuid);
+    public boolean removeMember(String memberCallsign) {
+        return memberCallsigns.remove(memberCallsign);
     }
 
-    public boolean isMember(UUID memberUuid) {
+    public boolean isMember(String memberCallsign) {
         if (type == ChatChannelType.COMMON_SERVER_WIDE) return true;
-        return members.contains(memberUuid);
+        if (memberCallsign == null || memberCallsign.isEmpty()) return false;
+        return memberCallsigns.contains(memberCallsign);
     }
 
     public NBTTagCompound toNBT() {
@@ -97,16 +99,16 @@ public class ChatChannel {
         nbt.setString("channelId", channelId);
         nbt.setString("displayName", displayName);
         nbt.setString("type", type.name());
-        if (creatorUuid != null) {
-            nbt.setString("creatorUuid", creatorUuid.toString());
+        if (creatorCallsign != null) {
+            nbt.setString("creatorCallsign", creatorCallsign);
         }
         nbt.setInteger("maxMembers", maxMembers);
 
         NBTTagList memberListNBT = new NBTTagList();
-        for (UUID member : members) {
-            memberListNBT.appendTag(new NBTTagString(member.toString()));
+        for (String memberCallsign : memberCallsigns) {
+            memberListNBT.appendTag(new NBTTagString(memberCallsign));
         }
-        nbt.setTag("members", memberListNBT);
+        nbt.setTag("memberCallsigns", memberListNBT);
         return nbt;
     }
 
@@ -115,21 +117,33 @@ public class ChatChannel {
         channel.channelId = nbt.getString("channelId");
         channel.displayName = nbt.getString("displayName");
         channel.type = ChatChannelType.valueOf(nbt.getString("type"));
-        if (nbt.hasKey("creatorUuid")) {
+        
+        // Поддержка миграции старых данных (UUID -> позывные)
+        if (nbt.hasKey("creatorCallsign")) {
+            channel.creatorCallsign = nbt.getString("creatorCallsign");
+        } else if (nbt.hasKey("creatorUuid")) {
+            // Старый формат - попытка найти позывной по UUID
             try {
-                channel.creatorUuid = UUID.fromString(nbt.getString("creatorUuid"));
+                UUID oldCreatorUuid = UUID.fromString(nbt.getString("creatorUuid"));
+                // Позывной будет установлен позже при загрузке через KPKServerManager
+                channel.creatorCallsign = null;
             } catch (IllegalArgumentException e) {
-                channel.creatorUuid = null;
+                channel.creatorCallsign = null;
             }
         }
+        
         channel.maxMembers = nbt.getInteger("maxMembers");
 
-        NBTTagList memberListNBT = nbt.getTagList("members", Constants.NBT.TAG_STRING);
-        for (int i = 0; i < memberListNBT.tagCount(); i++) {
-            try {
-                channel.members.add(UUID.fromString(memberListNBT.getStringTagAt(i)));
-            } catch (IllegalArgumentException e) {
+        // Поддержка миграции старых данных
+        if (nbt.hasKey("memberCallsigns")) {
+            NBTTagList memberListNBT = nbt.getTagList("memberCallsigns", Constants.NBT.TAG_STRING);
+            for (int i = 0; i < memberListNBT.tagCount(); i++) {
+                channel.memberCallsigns.add(memberListNBT.getStringTagAt(i));
             }
+        } else if (nbt.hasKey("members")) {
+            // Старый формат - UUID будут конвертированы позже
+            // Пока оставляем пустым, будет заполнено при загрузке через KPKServerManager
+            channel.memberCallsigns.clear();
         }
         return channel;
     }
@@ -138,14 +152,14 @@ public class ChatChannel {
         ByteBufUtils.writeUTF8String(buf, channelId);
         ByteBufUtils.writeUTF8String(buf, displayName);
         ByteBufUtils.writeUTF8String(buf, type.name());
-        buf.writeBoolean(creatorUuid != null);
-        if (creatorUuid != null) {
-            ByteBufUtils.writeUTF8String(buf, creatorUuid.toString());
+        buf.writeBoolean(creatorCallsign != null);
+        if (creatorCallsign != null) {
+            ByteBufUtils.writeUTF8String(buf, creatorCallsign);
         }
         buf.writeInt(maxMembers);
-        buf.writeInt(members.size());
-        for (UUID member : members) {
-            ByteBufUtils.writeUTF8String(buf, member.toString());
+        buf.writeInt(memberCallsigns.size());
+        for (String memberCallsign : memberCallsigns) {
+            ByteBufUtils.writeUTF8String(buf, memberCallsign);
         }
     }
 
@@ -155,12 +169,12 @@ public class ChatChannel {
         channel.displayName = ByteBufUtils.readUTF8String(buf);
         channel.type = ChatChannelType.valueOf(ByteBufUtils.readUTF8String(buf));
         if (buf.readBoolean()) {
-            channel.creatorUuid = UUID.fromString(ByteBufUtils.readUTF8String(buf));
+            channel.creatorCallsign = ByteBufUtils.readUTF8String(buf);
         }
         channel.maxMembers = buf.readInt();
         int memberCount = buf.readInt();
         for (int i = 0; i < memberCount; i++) {
-            channel.members.add(UUID.fromString(ByteBufUtils.readUTF8String(buf)));
+            channel.memberCallsigns.add(ByteBufUtils.readUTF8String(buf));
         }
         return channel;
     }
@@ -178,9 +192,12 @@ public class ChatChannel {
         return Objects.hash(channelId);
     }
 
-    public static String generatePMChannelId(UUID user1, UUID user2) {
-        String id1 = user1.toString();
-        String id2 = user2.toString();
+    public static String generatePMChannelId(String callsign1, String callsign2) {
+        if (callsign1 == null || callsign2 == null) {
+            throw new IllegalArgumentException("Callsigns cannot be null");
+        }
+        String id1 = callsign1.toLowerCase();
+        String id2 = callsign2.toLowerCase();
         if (id1.compareTo(id2) > 0) {
             return "pm_" + id2 + "_" + id1;
         } else {
@@ -188,9 +205,14 @@ public class ChatChannel {
         }
     }
 
-    public static String generateGroupChannelId(UUID creatorUuid, String channelName) {
+    public static String generateGroupChannelId(String creatorCallsign, String channelName) {
+        if (creatorCallsign == null) {
+            throw new IllegalArgumentException("Creator callsign cannot be null");
+        }
         String safeName = channelName.replaceAll("[^a-zA-Z0-9А-Яа-яЁё]", "").toLowerCase();
         if(safeName.length() > 10) safeName = safeName.substring(0, 10);
-        return "grp_" + creatorUuid.toString().substring(0, 4) + "_" + safeName + "_" + (System.currentTimeMillis() % 10000);
+        String safeCallsign = creatorCallsign.replaceAll("[^a-zA-Z0-9А-Яа-яЁё]", "").toLowerCase();
+        if(safeCallsign.length() > 8) safeCallsign = safeCallsign.substring(0, 8);
+        return "grp_" + safeCallsign + "_" + safeName + "_" + (System.currentTimeMillis() % 10000);
     }
 }

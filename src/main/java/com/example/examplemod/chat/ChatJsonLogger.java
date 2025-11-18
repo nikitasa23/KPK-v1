@@ -70,25 +70,15 @@ class ChatJsonLogger {
     }
 
     private static String buildPmFolderName(MinecraftServer server, ChatChannel channel) {
-        List<String> callsigns = resolveMemberCallsigns(server, channel.getMembers());
+        List<String> callsigns = new ArrayList<>(channel.getMemberCallsigns());
         Collections.sort(callsigns, String.CASE_INSENSITIVE_ORDER);
         return sanitize(String.join("__", callsigns));
     }
 
     private static String buildGroupFolderName(MinecraftServer server, ChatChannel channel) {
-        List<String> callsigns = resolveMemberCallsigns(server, channel.getMembers());
+        List<String> callsigns = new ArrayList<>(channel.getMemberCallsigns());
         Collections.sort(callsigns, String.CASE_INSENSITIVE_ORDER);
         return sanitize(String.join("__", callsigns));
-    }
-
-    private static List<String> resolveMemberCallsigns(MinecraftServer server, List<UUID> members) {
-        List<String> list = new ArrayList<>();
-        if (members == null) return list;
-        for (UUID id : members) {
-            User u = KPKServerManager.getUser(id);
-            list.add(u != null && u.pozivnoy != null ? u.pozivnoy : id.toString());
-        }
-        return list;
     }
 
     private static String sanitize(String in) {

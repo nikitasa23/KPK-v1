@@ -97,6 +97,27 @@ public class ChatManager {
         return null;
     }
 
+    @Nullable
+    private static String getPlayerCallsign(EntityPlayerMP player) {
+        Pair<UUID, User> identity = getKPKUserAndOwner(player);
+        if (identity != null && identity.getRight() != null && identity.getRight().pozivnoy != null && !identity.getRight().pozivnoy.isEmpty()) {
+            return identity.getRight().pozivnoy;
+        }
+        return null;
+    }
+
+    @Nullable
+    private static EntityPlayerMP findPlayerByCallsign(String callsign, MinecraftServer server) {
+        if (callsign == null || callsign.isEmpty() || server == null) return null;
+        for (EntityPlayerMP player : server.getPlayerList().getPlayers()) {
+            String playerCallsign = getPlayerCallsign(player);
+            if (callsign.equalsIgnoreCase(playerCallsign)) {
+                return player;
+            }
+        }
+        return null;
+    }
+
     public static boolean isPlayerHoldingEnabledKPK(EntityPlayerMP player) {
         if (player == null) return false;
 
@@ -165,11 +186,11 @@ public class ChatManager {
             return false;
         }
         User creatorUser = ItemKPK.getUserData(creatorKpk);
-        if (creatorUser == null) {
+        if (creatorUser == null || creatorUser.pozivnoy == null || creatorUser.pozivnoy.isEmpty()) {
             creatorPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Ваш КПК не настроен."));
             return false;
         }
-        UUID creatorUuid = creatorPlayer.getUniqueID();
+        String creatorCallsign = creatorUser.pozivnoy;
 
         MinecraftServer server = FMLCommonHandler.instance().getMinecraftServerInstance();
         EntityPlayerMP targetPlayer = server.getPlayerList().getPlayerByUUID(targetPlayerUuid);
@@ -185,28 +206,28 @@ public class ChatManager {
             return false;
         }
         User targetUser = ItemKPK.getUserData(targetKpk);
-        if (targetUser == null) {
+        if (targetUser == null || targetUser.pozivnoy == null || targetUser.pozivnoy.isEmpty()) {
             creatorPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "КПК целевого игрока не настроен."));
             return false;
         }
-        UUID targetUuid = targetPlayer.getUniqueID();
+        String targetCallsign = targetUser.pozivnoy;
 
-        boolean isSelfChat = creatorUuid.equals(targetUuid);
+        boolean isSelfChat = creatorCallsign.equalsIgnoreCase(targetCallsign);
 
-        String channelId = ChatChannel.generatePMChannelId(creatorUuid, targetUuid);
+        String channelId = ChatChannel.generatePMChannelId(creatorCallsign, targetCallsign);
         if (chatData.getChannel(channelId) != null) {
             creatorPlayer.sendMessage(new TextComponentString(TextFormatting.YELLOW + "ЛС с " + targetPlayer.getName() + " уже существует."));
             return true;
         }
 
-        List<UUID> members = new ArrayList<>();
-        members.add(creatorUuid);
+        List<String> memberCallsigns = new ArrayList<>();
+        memberCallsigns.add(creatorCallsign);
         if (!isSelfChat) {
-            members.add(targetUuid);
+            memberCallsigns.add(targetCallsign);
         }
 
         String displayName = "ЛС: " + creatorUser.pozivnoy + " / " + targetUser.pozivnoy;
-        ChatChannel pmChannel = new ChatChannel(channelId, displayName, ChatChannelType.PRIVATE_MESSAGE, creatorUuid, members, 2);
+        ChatChannel pmChannel = new ChatChannel(channelId, displayName, ChatChannelType.PRIVATE_MESSAGE, creatorCallsign, memberCallsigns, 2);
 
         chatData.addOrUpdateChannel(pmChannel);
         chatHistories.putIfAbsent(channelId, new LinkedList<>());
@@ -219,11 +240,11 @@ public class ChatManager {
 
         PacketNotifyChannelCreatedOrUpdated packet = new PacketNotifyChannelCreatedOrUpdated(pmChannel);
 
-        EntityPlayerMP creatorOnline = server.getPlayerList().getPlayerByUUID(creatorUuid);
+        EntityPlayerMP creatorOnline = findPlayerByCallsign(creatorCallsign, server);
         if(creatorOnline != null) PacketHandler.INSTANCE.sendTo(packet, creatorOnline);
 
         if (!isSelfChat) {
-            EntityPlayerMP targetOnline = server.getPlayerList().getPlayerByUUID(targetUuid);
+            EntityPlayerMP targetOnline = findPlayerByCallsign(targetCallsign, server);
             if(targetOnline != null) PacketHandler.INSTANCE.sendTo(packet, targetOnline);
         }
 
@@ -238,11 +259,11 @@ public class ChatManager {
         if (chatData == null) return false;
 
         Pair<UUID, User> creatorIdentity = getKPKUserAndOwner(creatorPlayer);
-        if (creatorIdentity == null) {
+        if (creatorIdentity == null || creatorIdentity.getRight() == null || creatorIdentity.getRight().pozivnoy == null || creatorIdentity.getRight().pozivnoy.isEmpty()) {
             creatorPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Ваш КПК не инициализирован или вы не держите его в руке."));
             return false;
         }
-        UUID creatorUuid = creatorIdentity.getLeft();
+        String creatorCallsign = creatorIdentity.getRight().pozivnoy;
 
         if (channelName == null || channelName.trim().isEmpty() || channelName.length() > 20 || channelName.length() < 2) {
             creatorPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Неверное имя канала (2-20 симв)."));
@@ -261,45 +282,51 @@ public class ChatManager {
             }
         }
 
-        List<UUID> allMemberUuids = new ArrayList<>(targetMemberUuidsFromContacts);
-        if (!allMemberUuids.contains(creatorUuid)) {
-            allMemberUuids.add(creatorUuid);
-        }
-        if (allMemberUuids.size() > 3) {
-            creatorPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Общее число участников превышает 3."));
-            return false;
-        }
-
+        List<String> allMemberCallsigns = new ArrayList<>();
         MinecraftServer server = FMLCommonHandler.instance().getMinecraftServerInstance();
+        
+        // Получаем позывные всех участников
         for(UUID memberId : targetMemberUuidsFromContacts) {
             EntityPlayerMP memberPlayer = server.getPlayerList().getPlayerByUUID(memberId);
             if(memberPlayer == null) {
                 creatorPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Один из выбранных участников не найден (оффлайн?)."));
                 return false;
             }
-            if (getKPKUserAndOwner(memberPlayer) == null){
+            String memberCallsign = getPlayerCallsign(memberPlayer);
+            if (memberCallsign == null || memberCallsign.isEmpty()){
                 creatorPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "У участника " + memberPlayer.getName() + " не настроен КПК или он не в руке."));
                 return false;
             }
+            if (!allMemberCallsigns.contains(memberCallsign)) {
+                allMemberCallsigns.add(memberCallsign);
+            }
+        }
+        
+        if (!allMemberCallsigns.contains(creatorCallsign)) {
+            allMemberCallsigns.add(creatorCallsign);
+        }
+        if (allMemberCallsigns.size() > 3) {
+            creatorPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Общее число участников превышает 3."));
+            return false;
         }
 
-        String channelId = ChatChannel.generateGroupChannelId(creatorUuid, channelName);
-        ChatChannel groupChannel = new ChatChannel(channelId, displayName, ChatChannelType.PRIVATE_GROUP, creatorUuid, allMemberUuids, 3);
+        String channelId = ChatChannel.generateGroupChannelId(creatorCallsign, channelName);
+        ChatChannel groupChannel = new ChatChannel(channelId, displayName, ChatChannelType.PRIVATE_GROUP, creatorCallsign, allMemberCallsigns, 3);
         chatData.addOrUpdateChannel(groupChannel);
         chatHistories.putIfAbsent(channelId, new LinkedList<>());
         chatData.markDirty();
 
         creatorPlayer.sendMessage(new TextComponentString(TextFormatting.GREEN + "Закрытый канал '" + displayName + "' создан."));
         PacketNotifyChannelCreatedOrUpdated packet = new PacketNotifyChannelCreatedOrUpdated(groupChannel);
-        for (UUID memberUuid : allMemberUuids) {
-            EntityPlayerMP memberPlayer = server.getPlayerList().getPlayerByUUID(memberUuid);
+        for (String memberCallsign : allMemberCallsigns) {
+            EntityPlayerMP memberPlayer = findPlayerByCallsign(memberCallsign, server);
             if (memberPlayer != null) {
                 ItemStack memberKpk = getKPKItemStack(memberPlayer);
                 if (memberKpk != null) {
                     ItemKPK.addPrivateChannelId(memberKpk, channelId);
                 }
                 PacketHandler.INSTANCE.sendTo(packet, memberPlayer);
-                if (!memberUuid.equals(creatorUuid)) {
+                if (!memberCallsign.equalsIgnoreCase(creatorCallsign)) {
                     memberPlayer.sendMessage(new TextComponentString(TextFormatting.GREEN + creatorPlayer.getName() + " добавил(а) вас в ЗК '" + displayName + "'."));
                 }
             }
@@ -322,33 +349,33 @@ public class ChatManager {
         }
 
         Pair<UUID, User> requesterIdentity = getKPKUserAndOwner(requesterPlayer);
-        if (requesterIdentity == null) {
+        if (requesterIdentity == null || requesterIdentity.getRight() == null || requesterIdentity.getRight().pozivnoy == null || requesterIdentity.getRight().pozivnoy.isEmpty()) {
             requesterPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Ваш КПК не инициализирован."));
             return false;
         }
-        UUID requesterUuid = requesterIdentity.getLeft();
-        String requesterName = requesterIdentity.getRight().pozivnoy;
+        String requesterCallsign = requesterIdentity.getRight().pozivnoy;
+        String requesterName = requesterCallsign;
 
-        if (!channel.isMember(requesterUuid)) {
+        if (!channel.isMember(requesterCallsign)) {
             requesterPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Вы не являетесь участником этого канала."));
             return false;
         }
 
         MinecraftServer server = requesterPlayer.getServer();
-        List<UUID> originalMembers = new ArrayList<>(channel.getMembers());
+        List<String> originalMemberCallsigns = new ArrayList<>(channel.getMemberCallsigns());
 
         switch (channel.getType()) {
             case PRIVATE_MESSAGE: {
                 PacketNotifyChannelDeleted packet = new PacketNotifyChannelDeleted(channelId);
-                for (UUID memberUuid : originalMembers) {
-                    EntityPlayerMP memberPlayer = server.getPlayerList().getPlayerByUUID(memberUuid);
+                for (String memberCallsign : originalMemberCallsigns) {
+                    EntityPlayerMP memberPlayer = findPlayerByCallsign(memberCallsign, server);
                     if (memberPlayer != null) {
                         ItemStack memberKpk = getKPKItemStack(memberPlayer);
                         if (memberKpk != null) {
                             ItemKPK.removePrivateChannelId(memberKpk, channelId);
                         }
                         PacketHandler.INSTANCE.sendTo(packet, memberPlayer);
-                        if (memberUuid.equals(requesterUuid)) {
+                        if (memberCallsign.equalsIgnoreCase(requesterCallsign)) {
                             memberPlayer.sendMessage(new TextComponentString(TextFormatting.YELLOW + "Вы удалили чат '" + channel.getDisplayName() + "'."));
                         } else {
                             memberPlayer.sendMessage(new TextComponentString(TextFormatting.YELLOW + "Чат '" + channel.getDisplayName() + "' был удален пользователем " + requesterName + "."));
@@ -360,19 +387,19 @@ public class ChatManager {
                 break;
             }
             case PRIVATE_GROUP: {
-                if (channel.getCreatorUuid().equals(requesterUuid)) {
+                if (channel.getCreatorCallsign() != null && channel.getCreatorCallsign().equalsIgnoreCase(requesterCallsign)) {
                     // Creator disbands the channel
                     String messageToMembers = TextFormatting.YELLOW + "Канал '" + channel.getDisplayName() + "' был расформирован создателем.";
                     PacketNotifyChannelDeleted packet = new PacketNotifyChannelDeleted(channelId);
 
-                    for (UUID memberUuid : originalMembers) {
-                        EntityPlayerMP memberPlayer = server.getPlayerList().getPlayerByUUID(memberUuid);
+                    for (String memberCallsign : originalMemberCallsigns) {
+                        EntityPlayerMP memberPlayer = findPlayerByCallsign(memberCallsign, server);
                         if (memberPlayer != null) {
                             ItemStack memberKpk = getKPKItemStack(memberPlayer);
                             if (memberKpk != null) {
                                 ItemKPK.removePrivateChannelId(memberKpk, channelId);
                             }
-                            if (!memberUuid.equals(requesterUuid)) {
+                            if (!memberCallsign.equalsIgnoreCase(requesterCallsign)) {
                                 memberPlayer.sendMessage(new TextComponentString(messageToMembers));
                             }
                             PacketHandler.INSTANCE.sendTo(packet, memberPlayer);
@@ -383,7 +410,7 @@ public class ChatManager {
                     chatHistories.remove(channelId);
                 } else {
                     // A member leaves the channel
-                    channel.removeMember(requesterUuid);
+                    channel.removeMember(requesterCallsign);
                     chatData.addOrUpdateChannel(channel);
                     requesterPlayer.sendMessage(new TextComponentString(TextFormatting.YELLOW + "Вы покинули канал '" + channel.getDisplayName() + "'."));
 
@@ -397,8 +424,8 @@ public class ChatManager {
                     String messageToMembers = TextFormatting.YELLOW + "Участник " + requesterName + " покинул(а) канал '" + channel.getDisplayName() + "'.";
                     PacketNotifyChannelCreatedOrUpdated updatePacket = new PacketNotifyChannelCreatedOrUpdated(channel);
 
-                    for (UUID memberUuid : channel.getMembers()) {
-                        EntityPlayerMP memberPlayer = server.getPlayerList().getPlayerByUUID(memberUuid);
+                    for (String memberCallsign : channel.getMemberCallsigns()) {
+                        EntityPlayerMP memberPlayer = findPlayerByCallsign(memberCallsign, server);
                         if (memberPlayer != null) {
                             memberPlayer.sendMessage(new TextComponentString(messageToMembers));
                             PacketHandler.INSTANCE.sendTo(updatePacket, memberPlayer);
@@ -422,12 +449,13 @@ public class ChatManager {
         }
 
         Pair<UUID, User> senderIdentity = getKPKUserAndOwner(senderPlayer);
-        if (senderIdentity == null) {
+        if (senderIdentity == null || senderIdentity.getRight() == null || senderIdentity.getRight().pozivnoy == null || senderIdentity.getRight().pozivnoy.isEmpty()) {
             senderPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Не удалось отправить сообщение: КПК не инициализирован."));
             return;
         }
+        String senderCallsign = senderIdentity.getRight().pozivnoy;
 
-        if (!channel.isMember(senderIdentity.getLeft()) && !chatMessage.isAnonymous) {
+        if (!channel.isMember(senderCallsign) && !chatMessage.isAnonymous) {
             System.err.println("[ExampleMod] Player " + chatMessage.senderPlayerName + " tried to send message to channel " + channel.getChannelId() + " they are not a member of.");
             senderPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Вы не являетесь участником канала '" + channel.getDisplayName() + "'."));
             return;
@@ -458,11 +486,11 @@ public class ChatManager {
                 }
             }
         } else {
-            for (UUID memberUuid : channel.getMembers()) {
-                EntityPlayerMP memberPlayer = server.getPlayerList().getPlayerByUUID(memberUuid);
+            for (String memberCallsign : channel.getMemberCallsigns()) {
+                EntityPlayerMP memberPlayer = findPlayerByCallsign(memberCallsign, server);
                 if (memberPlayer != null) {
                     PacketHandler.INSTANCE.sendTo(packet, memberPlayer);
-                    if (notificationPacket != null && !isPlayerHoldingEnabledKPK(memberPlayer) && !memberUuid.equals(senderPlayer.getUniqueID())) {
+                    if (notificationPacket != null && !isPlayerHoldingEnabledKPK(memberPlayer) && !memberCallsign.equalsIgnoreCase(senderCallsign)) {
                         PacketHandler.INSTANCE.sendTo(notificationPacket, memberPlayer);
                     }
                 }
@@ -516,42 +544,34 @@ public class ChatManager {
         }
 
         Pair<UUID, User> adderIdentity = getKPKUserAndOwner(addingPlayer);
-        if (adderIdentity == null) {
+        if (adderIdentity == null || adderIdentity.getRight() == null || adderIdentity.getRight().pozivnoy == null || adderIdentity.getRight().pozivnoy.isEmpty()) {
             addingPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Ваш КПК не настроен."));
             return false;
         }
+        String adderCallsign = adderIdentity.getRight().pozivnoy;
 
-        if (!channel.getCreatorUuid().equals(adderIdentity.getLeft())) {
+        if (channel.getCreatorCallsign() == null || !channel.getCreatorCallsign().equalsIgnoreCase(adderCallsign)) {
             addingPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Только создатель канала может добавлять участников."));
             return false;
         }
 
-        EntityPlayerMP playerToAdd = null;
-        Pair<UUID, User> targetIdentity = null;
-        for (EntityPlayerMP p : server.getPlayerList().getPlayers()) {
-            Pair<UUID, User> identity = getKPKUserAndOwner(p);
-            if (identity != null && targetCallsign.equalsIgnoreCase(identity.getRight().pozivnoy)) {
-                playerToAdd = p;
-                targetIdentity = identity;
-                break;
-            }
-        }
-
-        if (playerToAdd == null || targetIdentity == null) {
+        EntityPlayerMP playerToAdd = findPlayerByCallsign(targetCallsign, server);
+        if (playerToAdd == null) {
             addingPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Игрок с позывным '" + targetCallsign + "' не найден или его КПК не настроен/не в руке."));
             return false;
         }
+        String targetCallsignNormalized = targetCallsign;
 
-        if (channel.isMember(targetIdentity.getLeft())) {
+        if (channel.isMember(targetCallsignNormalized)) {
             addingPlayer.sendMessage(new TextComponentString(TextFormatting.YELLOW + playerToAdd.getName() + " уже в канале."));
             return false;
         }
-        if (channel.getMembers().size() >= channel.getMaxMembers()) {
+        if (channel.getMemberCallsigns().size() >= channel.getMaxMembers()) {
             addingPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Не удалось добавить " + playerToAdd.getName() + ". Канал полон."));
             return false;
         }
 
-        channel.addMember(targetIdentity.getLeft());
+        channel.addMember(targetCallsignNormalized);
         chatData.addOrUpdateChannel(channel);
 
         ItemStack targetKpk = getKPKItemStack(playerToAdd);
@@ -562,13 +582,13 @@ public class ChatManager {
         PacketNotifyChannelCreatedOrUpdated packetUpdate = new PacketNotifyChannelCreatedOrUpdated(channel);
         String notification = TextFormatting.GREEN + addingPlayer.getName() + " добавил(а) " + playerToAdd.getName() + " в ЗК '" + channel.getDisplayName() + "'.";
 
-        for (UUID memberUuid : channel.getMembers()) {
-            EntityPlayerMP memberPlayer = server.getPlayerList().getPlayerByUUID(memberUuid);
+        for (String memberCallsign : channel.getMemberCallsigns()) {
+            EntityPlayerMP memberPlayer = findPlayerByCallsign(memberCallsign, server);
             if (memberPlayer != null) {
                 PacketHandler.INSTANCE.sendTo(packetUpdate, memberPlayer);
-                if (memberUuid.equals(targetIdentity.getLeft())) {
+                if (memberCallsign.equalsIgnoreCase(targetCallsignNormalized)) {
                     memberPlayer.sendMessage(new TextComponentString(TextFormatting.GREEN + addingPlayer.getName() + " добавил(а) вас в ЗК '" + channel.getDisplayName() + "'."));
-                } else if(!memberUuid.equals(adderIdentity.getLeft())){
+                } else if(!memberCallsign.equalsIgnoreCase(adderCallsign)){
                     memberPlayer.sendMessage(new TextComponentString(notification));
                 }
             }
@@ -588,33 +608,50 @@ public class ChatManager {
         }
 
         Pair<UUID, User> requesterIdentity = getKPKUserAndOwner(requester);
-        if (requesterIdentity == null) return false;
+        if (requesterIdentity == null || requesterIdentity.getRight() == null || requesterIdentity.getRight().pozivnoy == null || requesterIdentity.getRight().pozivnoy.isEmpty()) {
+            return false;
+        }
+        String requesterCallsign = requesterIdentity.getRight().pozivnoy;
 
-        if (channel.getCreatorUuid() == null || !channel.getCreatorUuid().equals(requesterIdentity.getLeft())) {
+        if (channel.getCreatorCallsign() == null || !channel.getCreatorCallsign().equalsIgnoreCase(requesterCallsign)) {
             requester.sendMessage(new TextComponentString(TextFormatting.RED + "Только создатель канала может исключать участников."));
             return false;
         }
 
-        if (memberToRemoveUuid.equals(requesterIdentity.getLeft())) {
+        // Находим позывной удаляемого участника по UUID
+        EntityPlayerMP removedPlayer = server.getPlayerList().getPlayerByUUID(memberToRemoveUuid);
+        String memberToRemoveCallsign = null;
+        if (removedPlayer != null) {
+            memberToRemoveCallsign = getPlayerCallsign(removedPlayer);
+        }
+        if (memberToRemoveCallsign == null || memberToRemoveCallsign.isEmpty()) {
+            User removedUser = KPKServerManager.getUser(memberToRemoveUuid);
+            if (removedUser != null && removedUser.pozivnoy != null && !removedUser.pozivnoy.isEmpty()) {
+                memberToRemoveCallsign = removedUser.pozivnoy;
+            } else {
+                requester.sendMessage(new TextComponentString(TextFormatting.RED + "Не удалось найти позывной участника."));
+                return false;
+            }
+        }
+
+        if (memberToRemoveCallsign.equalsIgnoreCase(requesterCallsign)) {
             requester.sendMessage(new TextComponentString(TextFormatting.RED + "Вы не можете исключить самого себя. Для выхода используйте кнопку удаления чата."));
             return false;
         }
 
-        if (!channel.isMember(memberToRemoveUuid)) {
+        if (!channel.isMember(memberToRemoveCallsign)) {
             requester.sendMessage(new TextComponentString(TextFormatting.RED + "Участник не найден в этом канале."));
             return false;
         }
 
-        User removedUser = KPKServerManager.getUser(memberToRemoveUuid);
-        String removedPlayerName = (removedUser != null) ? removedUser.pozivnoy : "???";
+        String removedPlayerName = memberToRemoveCallsign;
 
-        channel.removeMember(memberToRemoveUuid);
+        channel.removeMember(memberToRemoveCallsign);
         chatData.addOrUpdateChannel(channel);
         chatData.markDirty();
 
         requester.sendMessage(new TextComponentString(TextFormatting.GREEN + "Вы исключили " + removedPlayerName + " из канала '" + channel.getDisplayName() + "'."));
 
-        EntityPlayerMP removedPlayer = server.getPlayerList().getPlayerByUUID(memberToRemoveUuid);
         if (removedPlayer != null) {
             ItemStack removedPlayerKpk = getKPKItemStack(removedPlayer);
             if (removedPlayerKpk != null) {
@@ -625,8 +662,8 @@ public class ChatManager {
         }
 
         PacketNotifyChannelCreatedOrUpdated packetUpdate = new PacketNotifyChannelCreatedOrUpdated(channel);
-        for (UUID memberUuid : channel.getMembers()) {
-            EntityPlayerMP member = server.getPlayerList().getPlayerByUUID(memberUuid);
+        for (String memberCallsign : channel.getMemberCallsigns()) {
+            EntityPlayerMP member = findPlayerByCallsign(memberCallsign, server);
             if (member != null) {
                 if (!member.equals(requester)) {
                     member.sendMessage(new TextComponentString(TextFormatting.YELLOW + removedPlayerName + " был(а) исключен(а) из канала '" + channel.getDisplayName() + "'."));
