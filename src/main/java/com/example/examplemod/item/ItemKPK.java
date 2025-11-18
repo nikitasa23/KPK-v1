@@ -41,6 +41,7 @@ public class ItemKPK extends Item {
     public static final String TAG_USER_GENDER = "gender";
     public static final String TAG_USER_BIRTHDATE = "birthdate";
     public static final String TAG_CONTACTS = "KpkContacts";
+    public static final String TAG_PRIVATE_CHANNELS = "KpkPrivateChannels";
 
     public static final int PAGE_INFO = 0;
     public static final int PAGE_CHAT = 1;
@@ -234,6 +235,38 @@ public class ItemKPK extends Item {
     public static void setCurrentChatChannelId(ItemStack stack, String channelId) {
         if (channelId != null) {
             getTag(stack).setString(TAG_CURRENT_CHAT_CHANNEL_ID, channelId);
+        }
+    }
+
+    public static List<String> getPrivateChannelIds(ItemStack stack) {
+        List<String> channelIds = new ArrayList<>();
+        NBTTagList tagList = getTag(stack).getTagList(TAG_PRIVATE_CHANNELS, Constants.NBT.TAG_STRING);
+        for (int i = 0; i < tagList.tagCount(); i++) {
+            channelIds.add(tagList.getStringTagAt(i));
+        }
+        return channelIds;
+    }
+
+    public static void setPrivateChannelIds(ItemStack stack, List<String> channelIds) {
+        NBTTagList tagList = new NBTTagList();
+        for (String channelId : channelIds) {
+            tagList.appendTag(new NBTTagString(channelId));
+        }
+        getTag(stack).setTag(TAG_PRIVATE_CHANNELS, tagList);
+    }
+
+    public static void addPrivateChannelId(ItemStack stack, String channelId) {
+        List<String> channelIds = getPrivateChannelIds(stack);
+        if (channelId != null && !channelId.isEmpty() && !channelIds.contains(channelId)) {
+            channelIds.add(channelId);
+            setPrivateChannelIds(stack, channelIds);
+        }
+    }
+
+    public static void removePrivateChannelId(ItemStack stack, String channelId) {
+        List<String> channelIds = getPrivateChannelIds(stack);
+        if (channelIds.remove(channelId)) {
+            setPrivateChannelIds(stack, channelIds);
         }
     }
 

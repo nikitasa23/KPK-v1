@@ -2,7 +2,6 @@ package com.example.examplemod.chat;
 
 import com.example.examplemod.User;
 import com.example.examplemod.item.ItemKPK;
-import com.example.examplemod.discord.DiscordBridge;
 import com.example.examplemod.kpk.KPKServerManager;
 import com.example.examplemod.network.PacketBroadcastChatMessageToClient;
 import com.example.examplemod.network.PacketHandler;
@@ -60,8 +59,6 @@ public class ChatManager {
 
         chatHistories.clear();
         chatData.loadHistories(chatHistories, MAX_HISTORY_PER_CHANNEL);
-
-        System.out.println("[ExampleMod] ChatManager loaded. Channels: " + chatData.getAllChannels().size());
     }
 
     public static void save(MinecraftServer server) {
@@ -119,13 +116,38 @@ public class ChatManager {
     public static List<ChatChannel> getSubscribedChannels(EntityPlayerMP player) {
         if (chatData == null) return Collections.emptyList();
 
-        Pair<UUID, User> actingUser = getKPKUserAndOwner(player);
-        if (actingUser == null) return Collections.emptyList();
-        UUID actingUuid = actingUser.getLeft();
+        List<ChatChannel> result = new ArrayList<>();
 
-        return chatData.getAllChannels().stream()
-                .filter(channel -> channel.isMember(actingUuid))
-                .collect(Collectors.toList());
+        ChatChannel commonChannel = chatData.getChannel(ChatChannel.COMMON_CHANNEL_ID_PREFIX);
+        if (commonChannel != null) {
+            result.add(commonChannel);
+        }
+
+        ItemStack kpkStack = getKPKItemStack(player);
+        if (kpkStack != null) {
+            List<String> privateChannelIds = ItemKPK.getPrivateChannelIds(kpkStack);
+            for (String channelId : privateChannelIds) {
+                ChatChannel channel = chatData.getChannel(channelId);
+                if (channel != null) {
+                    result.add(channel);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    @Nullable
+    private static ItemStack getKPKItemStack(EntityPlayerMP player) {
+        ItemStack mainHand = player.getHeldItemMainhand();
+        if (mainHand.getItem() instanceof ItemKPK && ItemKPK.isEnabled(mainHand)) {
+            return mainHand;
+        }
+        ItemStack offHand = player.getHeldItemOffhand();
+        if (offHand.getItem() instanceof ItemKPK && ItemKPK.isEnabled(offHand)) {
+            return offHand;
+        }
+        return null;
     }
 
     @Nullable
@@ -137,13 +159,17 @@ public class ChatManager {
     public static boolean createPrivateMessageChannel(EntityPlayerMP creatorPlayer, UUID targetPlayerUuid) {
         if (chatData == null) return false;
 
-        Pair<UUID, User> creatorIdentity = getKPKUserAndOwner(creatorPlayer);
-        if (creatorIdentity == null) {
+        ItemStack creatorKpk = getKPKItemStack(creatorPlayer);
+        if (creatorKpk == null) {
             creatorPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Ваш КПК не инициализирован или вы не держите его в руке."));
             return false;
         }
-        UUID creatorUuid = creatorIdentity.getLeft();
-        User creatorUser = creatorIdentity.getRight();
+        User creatorUser = ItemKPK.getUserData(creatorKpk);
+        if (creatorUser == null) {
+            creatorPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "Ваш КПК не настроен."));
+            return false;
+        }
+        UUID creatorUuid = creatorPlayer.getUniqueID();
 
         MinecraftServer server = FMLCommonHandler.instance().getMinecraftServerInstance();
         EntityPlayerMP targetPlayer = server.getPlayerList().getPlayerByUUID(targetPlayerUuid);
@@ -153,13 +179,17 @@ public class ChatManager {
             return false;
         }
 
-        Pair<UUID, User> targetIdentity = getKPKUserAndOwner(targetPlayer);
-        if (targetIdentity == null) {
+        ItemStack targetKpk = getKPKItemStack(targetPlayer);
+        if (targetKpk == null) {
             creatorPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "КПК целевого игрока не инициализирован или не находится в руке."));
             return false;
         }
-        UUID targetUuid = targetIdentity.getLeft();
-        User targetUser = targetIdentity.getRight();
+        User targetUser = ItemKPK.getUserData(targetKpk);
+        if (targetUser == null) {
+            creatorPlayer.sendMessage(new TextComponentString(TextFormatting.RED + "КПК целевого игрока не настроен."));
+            return false;
+        }
+        UUID targetUuid = targetPlayer.getUniqueID();
 
         boolean isSelfChat = creatorUuid.equals(targetUuid);
 
@@ -181,6 +211,11 @@ public class ChatManager {
         chatData.addOrUpdateChannel(pmChannel);
         chatHistories.putIfAbsent(channelId, new LinkedList<>());
         chatData.markDirty();
+
+        ItemKPK.addPrivateChannelId(creatorKpk, channelId);
+        if (!isSelfChat) {
+            ItemKPK.addPrivateChannelId(targetKpk, channelId);
+        }
 
         PacketNotifyChannelCreatedOrUpdated packet = new PacketNotifyChannelCreatedOrUpdated(pmChannel);
 
@@ -259,6 +294,10 @@ public class ChatManager {
         for (UUID memberUuid : allMemberUuids) {
             EntityPlayerMP memberPlayer = server.getPlayerList().getPlayerByUUID(memberUuid);
             if (memberPlayer != null) {
+                ItemStack memberKpk = getKPKItemStack(memberPlayer);
+                if (memberKpk != null) {
+                    ItemKPK.addPrivateChannelId(memberKpk, channelId);
+                }
                 PacketHandler.INSTANCE.sendTo(packet, memberPlayer);
                 if (!memberUuid.equals(creatorUuid)) {
                     memberPlayer.sendMessage(new TextComponentString(TextFormatting.GREEN + creatorPlayer.getName() + " добавил(а) вас в ЗК '" + displayName + "'."));
@@ -304,6 +343,10 @@ public class ChatManager {
                 for (UUID memberUuid : originalMembers) {
                     EntityPlayerMP memberPlayer = server.getPlayerList().getPlayerByUUID(memberUuid);
                     if (memberPlayer != null) {
+                        ItemStack memberKpk = getKPKItemStack(memberPlayer);
+                        if (memberKpk != null) {
+                            ItemKPK.removePrivateChannelId(memberKpk, channelId);
+                        }
                         PacketHandler.INSTANCE.sendTo(packet, memberPlayer);
                         if (memberUuid.equals(requesterUuid)) {
                             memberPlayer.sendMessage(new TextComponentString(TextFormatting.YELLOW + "Вы удалили чат '" + channel.getDisplayName() + "'."));
@@ -325,6 +368,10 @@ public class ChatManager {
                     for (UUID memberUuid : originalMembers) {
                         EntityPlayerMP memberPlayer = server.getPlayerList().getPlayerByUUID(memberUuid);
                         if (memberPlayer != null) {
+                            ItemStack memberKpk = getKPKItemStack(memberPlayer);
+                            if (memberKpk != null) {
+                                ItemKPK.removePrivateChannelId(memberKpk, channelId);
+                            }
                             if (!memberUuid.equals(requesterUuid)) {
                                 memberPlayer.sendMessage(new TextComponentString(messageToMembers));
                             }
@@ -339,6 +386,11 @@ public class ChatManager {
                     channel.removeMember(requesterUuid);
                     chatData.addOrUpdateChannel(channel);
                     requesterPlayer.sendMessage(new TextComponentString(TextFormatting.YELLOW + "Вы покинули канал '" + channel.getDisplayName() + "'."));
+
+                    ItemStack requesterKpk = getKPKItemStack(requesterPlayer);
+                    if (requesterKpk != null) {
+                        ItemKPK.removePrivateChannelId(requesterKpk, channelId);
+                    }
 
                     PacketHandler.INSTANCE.sendTo(new PacketNotifyChannelDeleted(channelId), requesterPlayer);
 
@@ -404,14 +456,6 @@ public class ChatManager {
                 if (getKPKUserAndOwner(p) != null) {
                     PacketHandler.INSTANCE.sendTo(packet, p);
                 }
-            }
-            // Forward to Discord (webhook), format: [HH:mm:ss] callsign: message
-            try {
-                String prefix = "[" + chatMessage.getFormattedTimestamp() + "] ";
-                String sender = chatMessage.isAnonymous ? "Аноним" : chatMessage.senderCallsign;
-                DiscordBridge.sendToDiscord(prefix + sender + ": " + chatMessage.messageContent);
-            } catch (Throwable t) {
-                // Do not break server flow on Discord errors
             }
         } else {
             for (UUID memberUuid : channel.getMembers()) {
@@ -510,6 +554,11 @@ public class ChatManager {
         channel.addMember(targetIdentity.getLeft());
         chatData.addOrUpdateChannel(channel);
 
+        ItemStack targetKpk = getKPKItemStack(playerToAdd);
+        if (targetKpk != null) {
+            ItemKPK.addPrivateChannelId(targetKpk, channelId);
+        }
+
         PacketNotifyChannelCreatedOrUpdated packetUpdate = new PacketNotifyChannelCreatedOrUpdated(channel);
         String notification = TextFormatting.GREEN + addingPlayer.getName() + " добавил(а) " + playerToAdd.getName() + " в ЗК '" + channel.getDisplayName() + "'.";
 
@@ -567,6 +616,10 @@ public class ChatManager {
 
         EntityPlayerMP removedPlayer = server.getPlayerList().getPlayerByUUID(memberToRemoveUuid);
         if (removedPlayer != null) {
+            ItemStack removedPlayerKpk = getKPKItemStack(removedPlayer);
+            if (removedPlayerKpk != null) {
+                ItemKPK.removePrivateChannelId(removedPlayerKpk, channelId);
+            }
             removedPlayer.sendMessage(new TextComponentString(TextFormatting.YELLOW + "Вы были исключены из канала '" + channel.getDisplayName() + "'."));
             PacketHandler.INSTANCE.sendTo(new PacketNotifyChannelDeleted(channelId), removedPlayer);
         }

@@ -3,7 +3,6 @@ package com.example.examplemod;
 import com.example.examplemod.chat.ChatManager;
 import com.example.examplemod.command.CommandKPKSet;
 import com.example.examplemod.gui.GuiHandler;
-import com.example.examplemod.discord.DiscordBridge;
 import com.example.examplemod.kpk.KPKServerManager;
 import com.example.examplemod.network.PacketHandler;
 import com.example.examplemod.proxy.CommonProxy;
@@ -47,7 +46,6 @@ public class ExampleMod
         ChatManager.load(event.getServer());
         KPKServerManager.load(event.getServer());
         java.io.File configDir = event.getServer().getFile("config");
-        DiscordBridge.init(configDir);
     }
 
     @EventHandler
@@ -56,7 +54,6 @@ public class ExampleMod
         if (server != null) {
             ChatManager.save(server);
             KPKServerManager.save(server);
-            DiscordBridge.shutdown();
         } else {
             ExampleMod.logger.warn("Could not save data: MinecraftServer instance is null during FMLServerStoppedEvent.");
         }
