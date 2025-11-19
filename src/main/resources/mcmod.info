@@ -1,7 +1,7 @@
 [
 {
-  "modid": "examplemod",
-  "name": "Example Mod",
+  "modid": "kpkmod",
+  "name": "kpkmod",
   "description": "Mod adds KPK from STALKER.",
   "version": "${version}",
   "mcversion": "${mcversion}",

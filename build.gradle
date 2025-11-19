@@ -12,9 +12,9 @@ apply plugin: 'net.minecraftforge.gradle'
 apply plugin: 'eclipse'
 apply plugin: 'maven-publish'
 
-version = '1.0'
-group = 'com.example.examplemod'
-archivesBaseName = 'examplemod'
+version = '1.3'
+group = 'com.example.kpkmod'
+archivesBaseName = 'kpkmod'
 
 sourceCompatibility = targetCompatibility = compileJava.sourceCompatibility = compileJava.targetCompatibility = '1.8'
 compileJava.options.encoding = 'UTF-8'
@@ -37,7 +37,7 @@ minecraft {
             property 'forge.logging.console.level', 'debug'
 
             mods {
-                examplemod {
+                kpkmod {
                     source sourceSets.main
                 }
             }
@@ -48,7 +48,7 @@ minecraft {
             property 'forge.logging.console.level', 'debug'
 
             mods {
-                examplemod {
+                kpkmod {
                     source sourceSets.main
                 }
             }
@@ -81,7 +81,7 @@ processResources {
 jar {
     manifest {
         attributes([
-                "Specification-Title": "examplemod",
+                "Specification-Title": "kpkmod",
                 "Specification-Vendor": "examplemodsareus",
                 "Specification-Version": "1",
                 "Implementation-Title": project.name,
