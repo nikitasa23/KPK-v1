@@ -13,7 +13,9 @@ import org.lwjgl.input.Mouse;
 import java.awt.Rectangle;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class KPKModelInteractionGui extends GuiScreen {
 
@@ -29,6 +31,7 @@ public class KPKModelInteractionGui extends GuiScreen {
     private int cursorCounter = 0;
     public int chatScrollOffset = 0;
     public int channelScrollOffset = 0;
+    private static final Map<String, Integer> CHAT_SCROLL_POSITIONS = new ConcurrentHashMap<>();
 
     // Registration form state
     private String regFam = "";
@@ -50,6 +53,7 @@ public class KPKModelInteractionGui extends GuiScreen {
                 this.kpkStack = offHandStack;
             }
         }
+        restoreChatScrollOffset();
     }
 
     public boolean isAddingContact() {
@@ -95,7 +99,37 @@ public class KPKModelInteractionGui extends GuiScreen {
     }
 
     public void setChatScrollOffset(int offset) {
-        this.chatScrollOffset = offset;
+        this.chatScrollOffset = Math.max(0, offset);
+        persistChatScrollOffset();
+    }
+
+    private String getCurrentChannelId() {
+        return kpkStack != null ? ItemKPK.getCurrentChatChannelId(kpkStack) : null;
+    }
+
+    private void restoreChatScrollOffset() {
+        String channelId = getCurrentChannelId();
+        if (channelId == null) {
+            this.chatScrollOffset = 0;
+            return;
+        }
+        this.chatScrollOffset = getSavedChatScrollOffset(channelId);
+    }
+
+    private void persistChatScrollOffset() {
+        String channelId = getCurrentChannelId();
+        if (channelId == null) return;
+        saveChatScrollOffset(channelId, this.chatScrollOffset);
+    }
+
+    public static int getSavedChatScrollOffset(String channelId) {
+        if (channelId == null) return 0;
+        return CHAT_SCROLL_POSITIONS.getOrDefault(channelId, 0);
+    }
+
+    public static void saveChatScrollOffset(String channelId, int offset) {
+        if (channelId == null) return;
+        CHAT_SCROLL_POSITIONS.put(channelId, Math.max(0, offset));
     }
 
     private void resetChatCreationState() {
@@ -126,6 +160,8 @@ public class KPKModelInteractionGui extends GuiScreen {
                 chatInputActive = false;
                 currentChatInput = "";
                 resetChatCreationState();
+            } else {
+                restoreChatScrollOffset();
             }
         }
     }
@@ -165,6 +201,7 @@ public class KPKModelInteractionGui extends GuiScreen {
             } else {
                 if (dWheel > 0) this.chatScrollOffset--;
                 else this.chatScrollOffset++;
+                persistChatScrollOffset();
             }
         }
     }
@@ -292,7 +329,8 @@ public class KPKModelInteractionGui extends GuiScreen {
                     if (!channelId.equals(com.example.examplemod.chat.ChatChannel.COMMON_CHANNEL_ID_PREFIX)) {
                         isAnonymous = false;
                     }
-                    this.chatScrollOffset = 0;
+                    restoreChatScrollOffset();
+                    persistChatScrollOffset();
                     return;
                 }
             }

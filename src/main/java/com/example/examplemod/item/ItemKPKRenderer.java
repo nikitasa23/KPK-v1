@@ -763,6 +763,18 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
                 scrollOffset = 0;
                 kpkGui.setChatScrollOffset(0);
             }
+        } else {
+            String storedChannelId = currentChannelId;
+            if (storedChannelId != null) {
+                scrollOffset = KPKModelInteractionGui.getSavedChatScrollOffset(storedChannelId);
+            }
+            if (canScroll) {
+                maxScroll = finalLines.size() - maxVisibleLines;
+                scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
+            } else {
+                scrollOffset = 0;
+            }
+            kpkGui = null;
         }
 
         Gui.drawRect(chatHistoryX, chatHistoryY, chatHistoryX + chatHistoryWidth, chatHistoryY + chatHistoryHeight, 0x55000000);
