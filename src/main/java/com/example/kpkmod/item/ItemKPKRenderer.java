@@ -53,6 +53,9 @@ import java.util.concurrent.ConcurrentHashMap;
 @SideOnly(Side.CLIENT)
 public class ItemKPKRenderer extends TileEntityItemStackRenderer {
     private static ItemCameraTransforms.TransformType currentTransform = ItemCameraTransforms.TransformType.NONE;
+    private static final boolean RENDER_PLAYER_HANDS = true;
+    private static final int HITBOX_REFRESH_INTERVAL_MS = 200;
+    private static final int MAX_FORMATTED_LINES = 180;
     private IBakedModel tabletModel;
     private boolean modelLoaded = false;
     private static final float MODEL_SCALE = 0.4f;
@@ -64,15 +67,14 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
     private static final FloatBuffer projection = BufferUtils.createFloatBuffer(16);
     private static final IntBuffer viewport = BufferUtils.createIntBuffer(16);
 
-    private static final Map<String, List<Pair<String, Boolean>>> FONT_CACHE = new ConcurrentHashMap<>();
+    private static final Map<FontCacheKey, List<Pair<String, Boolean>>> FONT_CACHE = new ConcurrentHashMap<>();
     private static boolean isFontCacheDirty = true;
     private static int lastScreenWidth = 0;
     private static int lastScreenHeight = 0;
 
     private static VertexBuffer tabletVBO;
     private static boolean atlasParamsInitialized = false;
-     private static long lastRectUpdateMs = 0L;
-    private static final long RECT_UPDATE_INTERVAL_MS = 50L;
+    private static long lastRectUpdateMs = 0L;
     private static final FloatBuffer SCREEN_COORDS = BufferUtils.createFloatBuffer(3);
 
     static {
@@ -227,7 +229,9 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
 
         if (currentTransform == ItemCameraTransforms.TransformType.FIRST_PERSON_RIGHT_HAND ||
                 currentTransform == ItemCameraTransforms.TransformType.FIRST_PERSON_LEFT_HAND) {
-            renderHandsHoldingTablet();
+            if (RENDER_PLAYER_HANDS) {
+                renderHandsHoldingTablet();
+            }
             if (ItemKPK.isEnabled(stack)) {
                 renderModelScreen(stack);
             }
@@ -369,7 +373,7 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
         boolean shouldUpdateRects = false;
         if (interactionGuiOpen) {
             long now = System.currentTimeMillis();
-            if (now - lastRectUpdateMs >= RECT_UPDATE_INTERVAL_MS) {
+            if (now - lastRectUpdateMs >= Math.max(30, HITBOX_REFRESH_INTERVAL_MS)) {
                 lastRectUpdateMs = now;
                 shouldUpdateRects = true;
             }
@@ -665,7 +669,7 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
         ChatChannel channel = ClientChatCache.getChannel(currentChannelId);
 
         if (mc.displayWidth != lastScreenWidth || mc.displayHeight != lastScreenHeight) {
-            invalidateFontCache();
+            FONT_CACHE.clear();
             lastScreenWidth = mc.displayWidth;
             lastScreenHeight = mc.displayHeight;
         }
@@ -692,54 +696,16 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
         int chatLineHeight = 10;
         int maxVisibleLines = (int)(chatHistoryHeight / (chatLineHeight * CHAT_TEXT_SCALE));
 
-        List<Pair<String, Boolean>> finalLines;
-
         if (isFontCacheDirty) {
             FONT_CACHE.clear();
-
-            for (ChatChannel subscribedChannel : ClientChatCache.getSubscribedChannels()) {
-                String cacheChannelId = subscribedChannel.getChannelId();
-                int currentWrappingWidth;
-                if (subscribedChannel.getType() != ChatChannelType.COMMON_SERVER_WIDE) {
-                    currentWrappingWidth = (int)((FULL_WIDTH - MEMBER_LIST_WIDTH - GAP) / CHAT_TEXT_SCALE);
-                } else {
-                    currentWrappingWidth = (int)(FULL_WIDTH / CHAT_TEXT_SCALE);
-                }
-
-                List<Pair<String, Boolean>> processedLines = new ArrayList<>();
-                List<ChatMessage> messages = ClientChatCache.getChatHistory(cacheChannelId);
-
-                for (ChatMessage msg : messages) {
-                    boolean isSelf = msg.senderUuid != null && mc.player != null && msg.senderUuid.equals(mc.player.getUniqueID());
-
-                    String senderName = msg.isAnonymous ? (TextFormatting.GRAY + "Аноним") : (TextFormatting.GRAY + msg.senderCallsign);
-
-                    if (isSelf && !msg.isAnonymous) {
-                        String suffix = " :" + senderName + " " + TextFormatting.GRAY + "[" + msg.getFormattedTimestamp() + "]";
-                        int wrapWidth = currentWrappingWidth - mc.fontRenderer.getStringWidth(suffix);
-                        List<String> wrappedContent = mc.fontRenderer.listFormattedStringToWidth(msg.messageContent, wrapWidth > 0 ? wrapWidth : 1);
-
-                        for(int i = 0; i < wrappedContent.size(); i++) {
-                            String line = wrappedContent.get(i);
-                            processedLines.add(Pair.of(i == wrappedContent.size() - 1 ? line + suffix : line, true));
-                        }
-                    } else {
-                        String prefix = TextFormatting.GRAY + "[" + msg.getFormattedTimestamp() + "] " + senderName + TextFormatting.WHITE + ": ";
-                        int wrapWidth = currentWrappingWidth - mc.fontRenderer.getStringWidth(prefix);
-                        List<String> wrappedContent = mc.fontRenderer.listFormattedStringToWidth(msg.messageContent, wrapWidth > 0 ? wrapWidth : 1);
-                        String indent = mc.fontRenderer.trimStringToWidth(" ", mc.fontRenderer.getStringWidth(prefix));
-
-                        for (int i = 0; i < wrappedContent.size(); i++) {
-                            processedLines.add(Pair.of((i == 0 ? prefix : indent) + wrappedContent.get(i), false));
-                        }
-                    }
-                }
-                FONT_CACHE.put(cacheChannelId, processedLines);
-            }
             isFontCacheDirty = false;
         }
 
-        finalLines = FONT_CACHE.getOrDefault(currentChannelId, Collections.emptyList());
+        int wrappingWidth = (int)(chatHistoryWidth / CHAT_TEXT_SCALE);
+        List<Pair<String, Boolean>> finalLines = FONT_CACHE.computeIfAbsent(
+                new FontCacheKey(currentChannelId, wrappingWidth),
+                key -> buildFormattedLinesForChannel(currentChannelId, wrappingWidth)
+        );
 
         int currentFormattedLinesCount = finalLines.size();
         if (interactionGuiOpen && kpkGui != null) {
@@ -1174,5 +1140,66 @@ public class ItemKPKRenderer extends TileEntityItemStackRenderer {
 
     public static void setTransformType(ItemCameraTransforms.TransformType transform) {
         currentTransform = transform;
+    }
+
+    private static List<Pair<String, Boolean>> buildFormattedLinesForChannel(String channelId, int wrappingWidth) {
+        if (channelId == null) {
+            return Collections.emptyList();
+        }
+        wrappingWidth = Math.max(1, wrappingWidth);
+        List<Pair<String, Boolean>> processedLines = new ArrayList<>();
+        List<ChatMessage> messages = ClientChatCache.getChatHistory(channelId);
+        for (ChatMessage msg : messages) {
+            boolean isSelf = msg.senderUuid != null && mc.player != null && msg.senderUuid.equals(mc.player.getUniqueID());
+            String senderName = msg.isAnonymous ? (TextFormatting.GRAY + "Аноним") : (TextFormatting.GRAY + msg.senderCallsign);
+            if (isSelf && !msg.isAnonymous) {
+                String suffix = " :" + senderName + " " + TextFormatting.GRAY + "[" + msg.getFormattedTimestamp() + "]";
+                int wrapWidth = wrappingWidth - mc.fontRenderer.getStringWidth(suffix);
+                List<String> wrappedContent = mc.fontRenderer.listFormattedStringToWidth(msg.messageContent, wrapWidth > 0 ? wrapWidth : 1);
+                for (int i = 0; i < wrappedContent.size(); i++) {
+                    String line = wrappedContent.get(i);
+                    processedLines.add(Pair.of(i == wrappedContent.size() - 1 ? line + suffix : line, true));
+                }
+            } else {
+                String prefix = TextFormatting.GRAY + "[" + msg.getFormattedTimestamp() + "] " + senderName + TextFormatting.WHITE + ": ";
+                int wrapWidth = wrappingWidth - mc.fontRenderer.getStringWidth(prefix);
+                List<String> wrappedContent = mc.fontRenderer.listFormattedStringToWidth(msg.messageContent, wrapWidth > 0 ? wrapWidth : 1);
+                String indent = mc.fontRenderer.trimStringToWidth(" ", mc.fontRenderer.getStringWidth(prefix));
+                for (int i = 0; i < wrappedContent.size(); i++) {
+                    processedLines.add(Pair.of((i == 0 ? prefix : indent) + wrappedContent.get(i), false));
+                }
+            }
+        }
+        int limit = Math.max(60, MAX_FORMATTED_LINES);
+        if (processedLines.size() > limit) {
+            return new ArrayList<>(processedLines.subList(processedLines.size() - limit, processedLines.size()));
+        }
+        return processedLines;
+    }
+
+    private static final class FontCacheKey {
+        private final String channelId;
+        private final int wrappingWidth;
+
+        private FontCacheKey(String channelId, int wrappingWidth) {
+            this.channelId = channelId == null ? "" : channelId;
+            this.wrappingWidth = wrappingWidth;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            FontCacheKey that = (FontCacheKey) o;
+            return wrappingWidth == that.wrappingWidth &&
+                    channelId.equals(that.channelId);
+        }
+
+        @Override
+        public int hashCode() {
+            int result = channelId.hashCode();
+            result = 31 * result + wrappingWidth;
+            return result;
+        }
     }
 }
