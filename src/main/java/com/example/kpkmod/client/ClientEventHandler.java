@@ -73,6 +73,11 @@ public class ClientEventHandler {
 
     @SideOnly(Side.CLIENT)
     private static void checkActiveKpkIdentity(EntityPlayer player) {
+        // Проверяем, что игрок в валидном мире и сервер доступен (проверка соединения для одиночной игры)
+        if (player.world == null || Minecraft.getMinecraft().getConnection() == null) {
+            return;
+        }
+
         ItemStack kpkStack = player.getHeldItemMainhand();
         if (!(kpkStack.getItem() instanceof ItemKPK) || !ItemKPK.isEnabled(kpkStack)) {
             kpkStack = player.getHeldItemOffhand();
@@ -96,7 +101,10 @@ public class ClientEventHandler {
         if (lastCheckedKpkOwnerUUID == null || !lastCheckedKpkOwnerUUID.equals(currentOwnerUUID)) {
             lastCheckedKpkOwnerUUID = currentOwnerUUID;
             ClientChatCache.activeKpkOwnerUUID = currentOwnerUUID;
-            PacketHandler.INSTANCE.sendToServer(new PacketRequestChannelSync());
+            // Дополнительная проверка перед отправкой пакета
+            if (Minecraft.getMinecraft().getConnection() != null && PacketHandler.INSTANCE != null) {
+                PacketHandler.INSTANCE.sendToServer(new PacketRequestChannelSync());
+            }
         }
     }
 }
